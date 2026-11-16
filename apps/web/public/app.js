@@ -556,7 +556,7 @@ uniform vec4 uStrength;
 uniform vec4 uFadeMul;
 out vec4 outColor;
 void main() {
-  vec2 p = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+  vec2 p = gl_FragCoord.xy;
   vec2 uv = p / uSize;
   vec2 px = (uSpacing / 3.0) / uSize;
   vec3 acc = vec3(0.0);
