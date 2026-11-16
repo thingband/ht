@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Halftone Studio — Color Halftone Print Converter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>Halftone Studio</h1>
+        <p>Turn any image into a color halftone print</p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <aside id="controls">
+      <section class="panel">
+        <h2>Image</h2>
+        <label class="file-btn" for="file">Choose image</label>
+        <input type="file" id="file" accept="image/*" hidden>
+        <button id="demo" class="ghost">Load demo image</button>
+        <p class="hint">You can also drag &amp; drop or paste an image anywhere.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Screening</h2>
+        <label>Mode
+          <select id="mode">
+            <option value="cmyk" selected>CMYK (print)</option>
+            <option value="rgb">RGB (screen)</option>
+            <option value="mono">Mono (B&amp;W)</option>
+          </select>
+        </label>
+        <label>Dot shape
+          <select id="shape">
+            <option value="circle" selected>Circle</option>
+            <option value="square">Square</option>
+            <option value="diamond">Diamond</option>
+            <option value="line">Line</option>
+          </select>
+        </label>
+        <label>Dot size <span class="val" id="spacingVal"></span>
+          <input type="range" id="spacing" min="3" max="30" step="1" value="8">
+        </label>
+        <label>Angle offset <span class="val" id="angleVal"></span>
+          <input type="range" id="angle" min="0" max="90" step="1" value="0">
+        </label>
+        <label>Dot gain <span class="val" id="gainVal"></span>
+          <input type="range" id="gain" min="0.5" max="2.5" step="0.05" value="1">
+        </label>
+        <label>Contrast <span class="val" id="contrastVal"></span>
+          <input type="range" id="contrast" min="0.5" max="2" step="0.05" value="1">
+        </label>
+        <label>Paper
+          <select id="bg">
+            <option value="#ffffff" selected>White</option>
+            <option value="#f4ecdd">Cream</option>
+            <option value="#e9e2d0">Newsprint</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Export</h2>
+        <label>Output size <span class="val" id="outSizeVal"></span>
+          <input type="range" id="outSize" min="600" max="2400" step="100" value="1600">
+        </label>
+        <button id="download" class="primary" disabled>Download PNG</button>
+      </section>
+    </aside>
+
+    <section id="stage">
+      <div id="placeholder">
+        <div id="dropzone">
+          <div class="dz-icon" aria-hidden="true"></div>
+          <p class="dz-title">Drop an image here</p>
+          <p class="dz-sub">or click “Choose image” / paste from clipboard</p>
+        </div>
+      </div>
+      <div id="canvasWrap" hidden>
+        <canvas id="preview"></canvas>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
