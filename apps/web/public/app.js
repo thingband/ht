@@ -237,6 +237,7 @@ function renderHalftone(source, width, height, opts) {
   const reach = Math.ceil(Math.hypot(width, height) / 2 / spacing);
   const jitterAmp = opts.jitter * spacing * 0.5;
   const varAmt = opts.inkvar;
+  const sub = spacing / 3;
 
   const paper = opts.mode === 'rgb' ? [0, 0, 0] : ageColor(hexToRgb(screen.bg()), opts.sunfade);
   const paperStyle = `rgb(${paper[0]},${paper[1]},${paper[2]})`;
@@ -292,13 +293,37 @@ function renderHalftone(source, width, height, opts) {
           px += (hash3(state.seed, ci, i, j * 2 + 1) - 0.5) * 2 * jitterAmp;
           py += (hash3(state.seed, ci, i, j * 2 + 2) - 0.5) * 2 * jitterAmp;
         }
-        const ix = Math.round(width / 2 + px * cos - py * sin);
-        const iy = Math.round(height / 2 + px * sin + py * cos);
-        if (ix < 0 || iy < 0 || ix >= width || iy >= height) continue;
-        const p = (iy * width + ix) * 4;
-        let r = data[p] / 255;
-        let g = data[p + 1] / 255;
-        let b = data[p + 2] / 255;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        for (let s = 0; s < 9; s++) {
+          const ox = px + ((s % 3) - 1) * sub;
+          const oy = py + (((s / 3) | 0) - 1) * sub;
+          const fx = width / 2 + ox * cos - oy * sin;
+          const fy = height / 2 + ox * sin + oy * cos;
+          let x0 = Math.floor(fx);
+          let y0 = Math.floor(fy);
+          const tx = fx - x0;
+          const ty = fy - y0;
+          x0 = x0 < 0 ? 0 : x0 >= width ? width - 1 : x0;
+          y0 = y0 < 0 ? 0 : y0 >= height ? height - 1 : y0;
+          const x1 = x0 + 1 >= width ? width - 1 : x0 + 1;
+          const y1 = y0 + 1 >= height ? height - 1 : y0 + 1;
+          const w00 = (1 - tx) * (1 - ty);
+          const w10 = tx * (1 - ty);
+          const w01 = (1 - tx) * ty;
+          const w11 = tx * ty;
+          const p00 = (y0 * width + x0) * 4;
+          const p10 = (y0 * width + x1) * 4;
+          const p01 = (y1 * width + x0) * 4;
+          const p11 = (y1 * width + x1) * 4;
+          r += data[p00] * w00 + data[p10] * w10 + data[p01] * w01 + data[p11] * w11;
+          g += data[p00 + 1] * w00 + data[p10 + 1] * w10 + data[p01 + 1] * w01 + data[p11 + 1] * w11;
+          b += data[p00 + 2] * w00 + data[p10 + 2] * w10 + data[p01 + 2] * w01 + data[p11 + 2] * w11;
+        }
+        r /= 2295;
+        g /= 2295;
+        b /= 2295;
         if (opts.brightness !== 1) {
           r *= opts.brightness;
           g *= opts.brightness;
