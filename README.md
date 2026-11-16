@@ -16,7 +16,7 @@ A web app that converts images into color halftone prints, served as a Mistral A
 - **Export** — renders the full-resolution result and downloads it as PNG.
 - Drag & drop, file picker, and clipboard paste are all supported. A built-in demo image lets you try it instantly.
 
-Everything runs client-side on a canvas; the API module only provides the platform's health routes.
+Rendering runs on the GPU through a WebGL2 two-pass pipeline (tone separation, then a per-pixel signed-distance dot field), falling back to the canvas 2D renderer when WebGL2 is unavailable. Everything runs client-side; the API module only provides the platform's health routes.
 
 ## Structure
 

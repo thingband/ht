@@ -535,6 +535,346 @@ function renderHalftone(source, width, height, opts) {
   return out;
 }
 
+const GL_VERT = `#version 300 es
+void main() {
+  vec2 pos = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const GL_FRAG_TONE = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uSize;
+uniform float uSpacing;
+uniform int uMode;
+uniform float uBrightness;
+uniform float uSaturation;
+uniform float uContrast;
+uniform float uGain;
+uniform float uRich;
+uniform vec4 uStrength;
+uniform vec4 uFadeMul;
+out vec4 outColor;
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+  vec2 uv = p / uSize;
+  vec2 px = (uSpacing / 3.0) / uSize;
+  vec3 acc = vec3(0.0);
+  for (int i = -1; i <= 1; i++) {
+    for (int j = -1; j <= 1; j++) {
+      acc += texture(uSrc, uv + vec2(float(i), float(j)) * px).rgb;
+    }
+  }
+  vec3 rgb = acc / 9.0 * uBrightness;
+  float l = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  rgb = clamp(l + (rgb - l) * uSaturation, 0.0, 1.0);
+  vec4 t;
+  if (uMode == 0) {
+    float c = 1.0 - rgb.r;
+    float m = 1.0 - rgb.g;
+    float y = 1.0 - rgb.b;
+    float k = min(c, min(m, y));
+    float d = 1.0 - k;
+    float e = uRich * k;
+    float ck = d > 0.001 ? (c - k) / d : 0.0;
+    float mk = d > 0.001 ? (m - k) / d : 0.0;
+    float yk = d > 0.001 ? (y - k) / d : 0.0;
+    t = vec4(min(1.0, ck + e), min(1.0, mk + e), min(1.0, yk + e), k);
+  } else if (uMode == 1) {
+    t = vec4(rgb, 1.0);
+  } else {
+    t = vec4(1.0 - dot(rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0, 0.0, 0.0);
+  }
+  outColor = vec4(
+    min(1.0, pow(clamp((t.r - 0.5) * uContrast + 0.5, 0.0, 1.0), 1.0 / uGain) * uStrength.r * uFadeMul.r),
+    min(1.0, pow(clamp((t.g - 0.5) * uContrast + 0.5, 0.0, 1.0), 1.0 / uGain) * uStrength.g * uFadeMul.g),
+    min(1.0, pow(clamp((t.b - 0.5) * uContrast + 0.5, 0.0, 1.0), 1.0 / uGain) * uStrength.b * uFadeMul.b),
+    min(1.0, pow(clamp((t.a - 0.5) * uContrast + 0.5, 0.0, 1.0), 1.0 / uGain) * uStrength.a * uFadeMul.a));
+}`;
+
+const GL_FRAG_SCREEN = `#version 300 es
+precision highp float;
+uniform sampler2D uTone;
+uniform vec2 uSize;
+uniform vec2 uCenter;
+uniform float uSpacing;
+uniform float uAngle;
+uniform float uMisreg;
+uniform float uJitter;
+uniform float uInkvar;
+uniform float uSpecks;
+uniform float uSoften;
+uniform float uGrain;
+uniform float uInkfade;
+uniform float uCrumple;
+uniform float uSeed;
+uniform int uCount;
+uniform int uShape;
+uniform float uAdditive;
+uniform vec3 uPaper;
+uniform vec3 uColors[4];
+uniform float uAngles[4];
+out vec4 outColor;
+const float PI = 3.14159265;
+float hash(vec3 p) {
+  p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float vnoise(vec2 p, float tag) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = hash(vec3(i, tag));
+  float b = hash(vec3(i + vec2(1.0, 0.0), tag));
+  float c = hash(vec3(i + vec2(0.0, 1.0), tag));
+  float d = hash(vec3(i + vec2(1.0, 1.0), tag));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float paperNoise(vec2 p) {
+  float cell = uSpacing * 1.2;
+  return 0.65 * vnoise(p / cell, uSeed + 31.0) + 0.35 * vnoise(p / (cell * 0.3), uSeed + 37.0);
+}
+float sdRoundBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+float roundedDiamond(vec2 q, float tone, float spacing) {
+  float wt = clamp(tone, 0.0, 0.5);
+  float denom = 1.0 - ((4.0 - PI) * (1.0 - 2.0 * wt) * (1.0 - 2.0 * wt)) / 4.0;
+  float a = spacing * sqrt(max(wt, 0.0) / denom);
+  float cr = (a / 2.0) * (1.0 - 2.0 * wt);
+  mat2 R = mat2(0.70710678, -0.70710678, 0.70710678, 0.70710678);
+  return sdRoundBox(R * q, vec2(a / 2.0), cr);
+}
+float chan(vec4 t, int i) {
+  return i == 0 ? t.r : i == 1 ? t.g : i == 2 ? t.b : t.a;
+}
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uSize.y - gl_FragCoord.y);
+  float n = (uGrain > 0.0 || uInkfade > 0.0 || uCrumple > 0.0) ? paperNoise(p) : 0.0;
+  float grainF = uGrain > 0.0 ? 1.0 - uGrain * 0.22 * (n - 0.5) * 2.0 : 1.0;
+  vec3 col = uPaper * grainF;
+  float band = uSoften * uSpacing * 0.18;
+  float w = 0.75 + band;
+  for (int ch = 0; ch < 4; ch++) {
+    if (ch >= uCount) break;
+    float ca = radians(uAngles[ch] + uAngle);
+    float cs = cos(ca);
+    float sn = sin(ca);
+    vec2 d = p - uCenter;
+    vec2 g = vec2(d.x * cs + d.y * sn, -d.x * sn + d.y * cs);
+    float md = hash(vec3(float(ch), 11.0, uSeed)) * 6.2831853;
+    g -= vec2(cos(md), sin(md)) * (uMisreg * uSpacing * 0.45);
+    vec2 cellId = floor(g / uSpacing);
+    vec2 jit = (vec2(hash(vec3(cellId, uSeed + float(ch) * 17.0 + 1.0)), hash(vec3(cellId, uSeed + float(ch) * 17.0 + 2.0))) - 0.5) * 2.0 * (uJitter * uSpacing * 0.5);
+    vec2 cj = (cellId + 0.5) * uSpacing + jit;
+    vec2 img = uCenter + vec2(cj.x * cs - cj.y * sn, cj.x * sn + cj.y * cs);
+    float tone = chan(texture(uTone, img / uSize), ch);
+    vec2 q = g - cj;
+    float cov = 0.0;
+    if (uShape == 0) {
+      if (tone >= 0.5) {
+        cov = 1.0 - smoothstep(-w, w, sdRoundBox(q, vec2(uSpacing / 2.0 + 0.25), 0.0));
+      } else {
+        cov = 1.0 - smoothstep(-w, w, roundedDiamond(q, tone, uSpacing));
+      }
+      for (int ci = 0; ci < 4; ci++) {
+        vec2 cornerId = cellId + vec2(float(ci & 1), float((ci >> 1) & 1));
+        vec2 corner = cornerId * uSpacing;
+        if (length(corner - g) >= uSpacing * 0.6) continue;
+        float tAvg = 0.0;
+        for (int k = 0; k < 4; k++) {
+          vec2 nid = cornerId - vec2(float(k & 1), float((k >> 1) & 1));
+          vec2 ng = (nid + 0.5) * uSpacing;
+          vec2 nimg = uCenter + vec2(ng.x * cs - ng.y * sn, ng.x * sn + ng.y * cs);
+          tAvg += chan(texture(uTone, nimg / uSize), ch);
+        }
+        tAvg /= 4.0;
+        if (tAvg > 0.5) {
+          float sdh = roundedDiamond(q - (corner - cj), 1.0 - tAvg, uSpacing);
+          cov *= 1.0 - (1.0 - smoothstep(-0.75, 0.75, sdh));
+        }
+      }
+    } else if (uShape == 1) {
+      cov = 1.0 - smoothstep(-w, w, sdRoundBox(q, vec2(uSpacing * sqrt(tone) / 2.0), 0.0));
+    } else if (uShape == 2) {
+      float sd = (abs(q.x) + abs(q.y) - 0.7 * uSpacing * sqrt(tone)) * 0.70710678;
+      cov = 1.0 - smoothstep(-w, w, sd);
+    } else {
+      cov = 1.0 - smoothstep(-w, w, sdRoundBox(q, vec2(uSpacing / 2.0, uSpacing * tone / 2.0), 0.0));
+    }
+    vec3 ink = uColors[ch];
+    if (uInkvar > 0.0) {
+      float f = 1.0 + (hash(vec3(cellId, uSeed + 91.0 + float(ch))) - 0.5) * 0.6 * uInkvar;
+      ink = clamp(ink * f, 0.0, 1.0);
+    }
+    if (uAdditive < 0.5) col *= 1.0 - cov * (1.0 - ink);
+    else col += cov * ink;
+  }
+  if (uInkfade > 0.0) col = mix(col, uPaper, uInkfade * clamp((0.55 - n) * 2.0, 0.0, 1.0));
+  if (uSpecks > 0.0) {
+    float scell = uSpacing * 6.325;
+    vec2 sid = floor(p / scell);
+    float h1 = hash(vec3(sid, uSeed + 7.0));
+    float thr = uSpecks / 100.0;
+    if (h1 < thr) {
+      vec2 off = vec2(hash(vec3(sid, uSeed + 71.0)), hash(vec3(sid, uSeed + 72.0)));
+      vec2 center = (sid + off) * scell;
+      float r = uSpacing * (0.04 + 0.1 * hash(vec3(sid, uSeed + 73.0)));
+      float cov = 1.0 - smoothstep(r - 0.75, r + 0.75, length(p - center));
+      if (cov > 0.0) {
+        col = h1 < thr * 0.35 ? mix(col, vec3(0.078), 0.85 * cov) : mix(col, uPaper, cov);
+      }
+    }
+  }
+  if (uCrumple > 0.0) {
+    float s5 = paperNoise(p - vec2(1.0, 0.0)) - paperNoise(p + vec2(1.0, 0.0))
+      + paperNoise(p - vec2(0.0, 1.0)) - paperNoise(p + vec2(0.0, 1.0));
+    float m = min(1.0, abs(s5) * 6.0);
+    vec3 shade = s5 > 0.0 ? vec3(1.0, 1.0, 0.98) : vec3(0.078, 0.063, 0.039);
+    col = mix(col, shade, uCrumple * m * 0.5);
+  }
+  outColor = vec4(col, 1.0);
+}`;
+
+function initGL() {
+  const gl = els.canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true, alpha: false });
+  if (!gl) return null;
+  const compile = (type, src) => {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  };
+  const link = (fs) => {
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, GL_VERT));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  };
+  try {
+    const progTone = link(GL_FRAG_TONE);
+    const progScreen = link(GL_FRAG_SCREEN);
+    const srcTex = gl.createTexture();
+    const toneTex = gl.createTexture();
+    for (const tex of [srcTex, toneTex]) {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    const toneFbo = gl.createFramebuffer();
+    const loc = (prog, names) => {
+      const m = {};
+      for (const n of names) m[n] = gl.getUniformLocation(prog, n);
+      return m;
+    };
+    return {
+      gl,
+      progTone,
+      progScreen,
+      srcTex,
+      toneTex,
+      toneFbo,
+      uTone: loc(progTone, ['uSrc', 'uSize', 'uSpacing', 'uMode', 'uBrightness', 'uSaturation', 'uContrast', 'uGain', 'uRich', 'uStrength', 'uFadeMul']),
+      uScreen: loc(progScreen, ['uTone', 'uSize', 'uCenter', 'uSpacing', 'uAngle', 'uMisreg', 'uJitter', 'uInkvar', 'uSpecks', 'uSoften', 'uGrain', 'uInkfade', 'uCrumple', 'uSeed', 'uCount', 'uShape', 'uAdditive', 'uPaper', 'uColors[0]', 'uAngles[0]']),
+      tw: 0,
+      th: 0,
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderGL(r, source, width, height, opts) {
+  const { gl } = r;
+  if (els.canvas.width !== width) {
+    els.canvas.width = width;
+    els.canvas.height = height;
+  }
+  gl.viewport(0, 0, width, height);
+  const screen = SCREENS[opts.mode];
+  const count = screen.channels.length;
+  const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  let src = source;
+  if (source.width > maxTex || source.height > maxTex) {
+    const scale = maxTex / Math.max(source.width, source.height);
+    const small = scratchCanvas('glscale', Math.round(source.width * scale), Math.round(source.height * scale));
+    small.getContext('2d').drawImage(source, 0, 0, small.width, small.height);
+    src = small;
+  }
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, r.srcTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+  if (r.tw !== width || r.th !== height) {
+    gl.bindTexture(gl.TEXTURE_2D, r.toneTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    r.tw = width;
+    r.th = height;
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, r.toneFbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, r.toneTex, 0);
+  gl.useProgram(r.progTone);
+  gl.uniform1i(r.uTone.uSrc, 0);
+  gl.uniform2f(r.uTone.uSize, width, height);
+  gl.uniform1f(r.uTone.uSpacing, opts.spacing);
+  gl.uniform1i(r.uTone.uMode, { cmyk: 0, rgb: 1, mono: 2 }[opts.mode]);
+  gl.uniform1f(r.uTone.uBrightness, opts.brightness);
+  gl.uniform1f(r.uTone.uSaturation, opts.saturation);
+  gl.uniform1f(r.uTone.uContrast, opts.contrast);
+  gl.uniform1f(r.uTone.uGain, opts.gain);
+  gl.uniform1f(r.uTone.uRich, opts.rich);
+  const strength = [0, 0, 0, 0];
+  const fadeMul = [0, 0, 0, 0];
+  screen.channels.forEach((ch, i) => {
+    strength[i] = ch.strength;
+    fadeMul[i] = 1 - opts.sunfade * ch.fadeBias;
+  });
+  gl.uniform4fv(r.uTone.uStrength, strength);
+  gl.uniform4fv(r.uTone.uFadeMul, fadeMul);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.useProgram(r.progScreen);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, r.toneTex);
+  const paper = opts.mode === 'rgb' ? [0, 0, 0] : ageColor(hexToRgb(screen.bg()), opts.sunfade);
+  gl.uniform1i(r.uScreen.uTone, 0);
+  gl.uniform2f(r.uScreen.uSize, width, height);
+  gl.uniform2f(r.uScreen.uCenter, width / 2, height / 2);
+  gl.uniform1f(r.uScreen.uSpacing, opts.spacing);
+  gl.uniform1f(r.uScreen.uAngle, opts.angle);
+  gl.uniform1f(r.uScreen.uMisreg, opts.misreg);
+  gl.uniform1f(r.uScreen.uJitter, opts.jitter);
+  gl.uniform1f(r.uScreen.uInkvar, opts.inkvar);
+  gl.uniform1f(r.uScreen.uSpecks, opts.specks);
+  gl.uniform1f(r.uScreen.uSoften, opts.soften);
+  gl.uniform1f(r.uScreen.uGrain, opts.grain);
+  gl.uniform1f(r.uScreen.uInkfade, opts.inkfade);
+  gl.uniform1f(r.uScreen.uCrumple, opts.crumple);
+  gl.uniform1f(r.uScreen.uSeed, state.seed % 16777216);
+  gl.uniform1i(r.uScreen.uCount, count);
+  gl.uniform1i(r.uScreen.uShape, { circle: 0, square: 1, diamond: 2, line: 3 }[opts.shape]);
+  gl.uniform1f(r.uScreen.uAdditive, screen.composite === 'multiply' ? 0 : 1);
+  gl.uniform3f(r.uScreen.uPaper, paper[0] / 255, paper[1] / 255, paper[2] / 255);
+  const colors = [];
+  const angles = [];
+  for (const ch of screen.channels) {
+    colors.push(ch.color[0] / 255, ch.color[1] / 255, ch.color[2] / 255);
+    angles.push(ch.angle);
+  }
+  gl.uniform3fv(r.uScreen['uColors[0]'], colors);
+  gl.uniform1fv(r.uScreen['uAngles[0]'], angles);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+const glRenderer = initGL();
+
 function readOpts() {
   return {
     mode: els.mode.value,
@@ -576,14 +916,18 @@ function renderPreview() {
   const w = Math.max(1, Math.round(out.w * scale));
   const h = Math.max(1, Math.round(out.h * scale));
   const opts = readOpts();
-  opts.fast = state.interacting;
+  opts.fast = glRenderer ? false : state.interacting;
   opts.spacing = Math.max(1.5, opts.spacing * (w / out.w));
-  const halftone = renderHalftone(src, w, h, opts);
-  if (els.canvas.width !== w) {
-    els.canvas.width = w;
-    els.canvas.height = h;
+  if (glRenderer) {
+    renderGL(glRenderer, src, w, h, opts);
+  } else {
+    const halftone = renderHalftone(src, w, h, opts);
+    if (els.canvas.width !== w) {
+      els.canvas.width = w;
+      els.canvas.height = h;
+    }
+    state.ctx2d.drawImage(halftone, 0, 0);
   }
-  els.canvas.getContext('2d').drawImage(halftone, 0, 0);
   els.placeholder.hidden = true;
   els.canvasWrap.hidden = false;
   els.download.disabled = false;
@@ -742,7 +1086,17 @@ els.download.addEventListener('click', () => {
   els.download.textContent = 'Rendering…';
   setTimeout(() => {
     const { w, h } = outputSize();
-    const halftone = renderHalftone(state.source, w, h, readOpts());
+    let halftone;
+    if (glRenderer) {
+      renderGL(glRenderer, state.source, w, h, readOpts());
+      halftone = document.createElement('canvas');
+      halftone.width = w;
+      halftone.height = h;
+      halftone.getContext('2d').drawImage(els.canvas, 0, 0);
+      renderPreview();
+    } else {
+      halftone = renderHalftone(state.source, w, h, readOpts());
+    }
     halftone.toBlob((blob) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -768,6 +1122,8 @@ els.download.addEventListener('click', () => {
     scheduleRender();
   })
 );
+
+state.ctx2d = glRenderer ? null : els.canvas.getContext('2d');
 
 buildInkControls();
 updateLabels();
