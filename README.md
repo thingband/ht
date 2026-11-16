@@ -9,6 +9,7 @@ A web app that converts images into color halftone prints, served as a Mistral A
 - **Mono (B&W)** — single black screen from image luminance.
 - **Dot shapes** — circle, square, diamond, line.
 - **Controls** — dot size, angle offset, dot gain (midtone response), contrast, and paper color.
+- **Press realism** — dot jitter, per-screen misregistration, and ink/dark specks, all driven by a re-rollable seed so the preview and the exported PNG show the same print.
 - **Export** — renders the full-resolution result and downloads it as PNG.
 - Drag & drop, file picker, and clipboard paste are all supported. A built-in demo image lets you try it instantly.
 

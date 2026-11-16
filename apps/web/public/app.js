@@ -16,6 +16,10 @@ const els = {
   angle: $('angle'),
   gain: $('gain'),
   contrast: $('contrast'),
+  jitter: $('jitter'),
+  misreg: $('misreg'),
+  specks: $('specks'),
+  reroll: $('reroll'),
   bg: $('bg'),
   outSize: $('outSize'),
   download: $('download'),
@@ -23,13 +27,28 @@ const els = {
   angleVal: $('angleVal'),
   gainVal: $('gainVal'),
   contrastVal: $('contrastVal'),
+  jitterVal: $('jitterVal'),
+  misregVal: $('misregVal'),
+  specksVal: $('specksVal'),
   outSizeVal: $('outSizeVal'),
 };
 
 const state = {
   source: null,
   name: 'image',
+  seed: (Math.random() * 0x100000000) >>> 0,
 };
+
+function hash3(seed, a, b, c) {
+  let h = (seed ^ 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ a, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h ^ b, 0xc2b2ae35);
+  h ^= h >>> 16;
+  h = Math.imul(h ^ c, 0x27d4eb2f);
+  h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+}
 
 const MAX_PREVIEW = 1100;
 
@@ -132,6 +151,7 @@ function renderHalftone(source, width, height, opts) {
   const spacing = opts.spacing;
   const maxR = spacing * 0.7;
   const reach = Math.ceil(Math.hypot(width, height) / 2 / spacing);
+  const jitterAmp = opts.jitter * spacing * 0.5;
 
   for (let ci = 0; ci < screen.channels.length; ci++) {
     const ch = screen.channels[ci];
@@ -147,11 +167,20 @@ function renderHalftone(source, width, height, opts) {
     lctx.save();
     lctx.translate(width / 2, height / 2);
     lctx.rotate(a);
+    if (opts.misreg > 0) {
+      const dir = hash3(state.seed, 11, ci, 3) * Math.PI * 2;
+      const mag = opts.misreg * spacing * 0.45;
+      lctx.translate(Math.cos(dir) * mag, Math.sin(dir) * mag);
+    }
 
     for (let i = -reach; i <= reach; i++) {
       for (let j = -reach; j <= reach; j++) {
-        const px = i * spacing;
-        const py = j * spacing;
+        let px = i * spacing;
+        let py = j * spacing;
+        if (jitterAmp > 0) {
+          px += (hash3(state.seed, ci, i, j * 2 + 1) - 0.5) * 2 * jitterAmp;
+          py += (hash3(state.seed, ci, i, j * 2 + 2) - 0.5) * 2 * jitterAmp;
+        }
         const ix = Math.round(width / 2 + px * cos - py * sin);
         const iy = Math.round(height / 2 + px * sin + py * cos);
         if (ix < 0 || iy < 0 || ix >= width || iy >= height) continue;
@@ -169,6 +198,20 @@ function renderHalftone(source, width, height, opts) {
     octx.drawImage(layer, 0, 0);
   }
   octx.globalCompositeOperation = 'source-over';
+
+  if (opts.specks > 0) {
+    const count = Math.round((opts.specks / 100) * 0.025 * (width * height) / (spacing * spacing));
+    for (let k = 0; k < count; k++) {
+      const dark = hash3(state.seed, 7, k, 1) < 0.35;
+      const x = hash3(state.seed, 7, k, 2) * width;
+      const y = hash3(state.seed, 7, k, 3) * height;
+      const r = spacing * (0.04 + hash3(state.seed, 7, k, 4) * 0.1);
+      octx.fillStyle = dark ? 'rgba(20,20,20,0.85)' : screen.bg();
+      octx.beginPath();
+      octx.arc(x, y, r, 0, Math.PI * 2);
+      octx.fill();
+    }
+  }
   return out;
 }
 
@@ -180,6 +223,9 @@ function readOpts() {
     angle: parseFloat(els.angle.value),
     gain: parseFloat(els.gain.value),
     contrast: parseFloat(els.contrast.value),
+    jitter: parseFloat(els.jitter.value),
+    misreg: parseFloat(els.misreg.value),
+    specks: parseFloat(els.specks.value),
   };
 }
 
@@ -266,6 +312,9 @@ function updateLabels() {
   els.angleVal.textContent = `${els.angle.value}°`;
   els.gainVal.textContent = Number(els.gain.value).toFixed(2);
   els.contrastVal.textContent = Number(els.contrast.value).toFixed(2);
+  els.jitterVal.textContent = `${Math.round(els.jitter.value * 100)}%`;
+  els.misregVal.textContent = `${Math.round(els.misreg.value * 100)}%`;
+  els.specksVal.textContent = els.specks.value;
   els.outSizeVal.textContent = `${els.outSize.value} px`;
 }
 
@@ -298,6 +347,11 @@ document.addEventListener('paste', (e) => {
 
 els.demo.addEventListener('click', () => loadSource(makeDemoImage(), 'demo'));
 
+els.reroll.addEventListener('click', () => {
+  state.seed = (Math.random() * 0x100000000) >>> 0;
+  scheduleRender();
+});
+
 els.download.addEventListener('click', () => {
   if (!state.source) return;
   els.download.disabled = true;
@@ -318,7 +372,7 @@ els.download.addEventListener('click', () => {
   }, 30);
 });
 
-[els.mode, els.shape, els.spacing, els.angle, els.gain, els.contrast, els.bg, els.outSize].forEach(
+[els.mode, els.shape, els.spacing, els.angle, els.gain, els.contrast, els.jitter, els.misreg, els.specks, els.bg, els.outSize].forEach(
   (el) => el.addEventListener('input', () => {
     updateLabels();
     scheduleRender();
