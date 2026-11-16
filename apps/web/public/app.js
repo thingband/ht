@@ -238,6 +238,10 @@ function renderHalftone(source, width, height, opts) {
   const jitterAmp = opts.jitter * spacing * 0.5;
   const varAmt = opts.inkvar;
   const sub = spacing / 3;
+  const isChain = opts.shape === 'circle' && typeof octx.roundRect === 'function';
+  const stride = 2 * reach + 1;
+  const tones = isChain ? new Float32Array(stride * stride) : null;
+  const halfCell = (spacing + 0.5) / 2;
 
   const paper = opts.mode === 'rgb' ? [0, 0, 0] : ageColor(hexToRgb(screen.bg()), opts.sunfade);
   const paperStyle = `rgb(${paper[0]},${paper[1]},${paper[2]})`;
@@ -263,6 +267,8 @@ function renderHalftone(source, width, height, opts) {
 
   for (let ci = 0; ci < screen.channels.length; ci++) {
     const ch = screen.channels[ci];
+    const jx = (i, j) => (jitterAmp > 0 ? (hash3(state.seed, ci, i, j * 2 + 1) - 0.5) * 2 * jitterAmp : 0);
+    const jy = (i, j) => (jitterAmp > 0 ? (hash3(state.seed, ci, i, j * 2 + 2) - 0.5) * 2 * jitterAmp : 0);
     const layer = document.createElement('canvas');
     layer.width = width;
     layer.height = height;
@@ -348,7 +354,63 @@ function renderHalftone(source, width, height, opts) {
           const f = 1 + (hash3(state.seed, 23, ci, i * 8192 + j) - 0.5) * 0.6 * varAmt;
           lctx.fillStyle = `rgb(${Math.min(255, cr * f) | 0},${Math.min(255, cg * f) | 0},${Math.min(255, cb * f) | 0})`;
         }
-        drawDot(lctx, opts.shape, px, py, maxR, spacing, v);
+        if (tones) tones[(i + reach) * stride + (j + reach)] = v;
+        if (isChain) {
+          if (v < 0.5) {
+            const denom = 1 - ((4 - Math.PI) * (1 - 2 * v) * (1 - 2 * v)) / 4;
+            const a = spacing * Math.sqrt(v / denom);
+            if (a >= 0.05) {
+              lctx.save();
+              lctx.translate(px, py);
+              lctx.rotate(Math.PI / 4);
+              lctx.beginPath();
+              lctx.roundRect(-a / 2, -a / 2, a, a, (a / 2) * (1 - 2 * v));
+              lctx.fill();
+              lctx.restore();
+            }
+          } else {
+            lctx.fillRect(px - halfCell, py - halfCell, spacing + 0.5, spacing + 0.5);
+          }
+        } else {
+          drawDot(lctx, opts.shape, px, py, maxR, spacing, v);
+        }
+      }
+    }
+
+    if (isChain) {
+      lctx.globalCompositeOperation = 'destination-out';
+      lctx.fillStyle = '#000';
+      for (let i = -reach; i < reach; i++) {
+        for (let j = -reach; j < reach; j++) {
+          let sum = 0;
+          let cnt = 0;
+          let sx = 0;
+          let sy = 0;
+          for (let di = 0; di <= 1; di++) {
+            for (let dj = 0; dj <= 1; dj++) {
+              const ii = i + di;
+              const jj = j + dj;
+              if (ii < -reach || ii > reach || jj < -reach || jj > reach) continue;
+              sum += tones[(ii + reach) * stride + (jj + reach)];
+              sx += ii * spacing + jx(ii, jj);
+              sy += jj * spacing + jy(ii, jj);
+              cnt++;
+            }
+          }
+          const tAvg = sum / cnt;
+          if (tAvg <= 0.5) continue;
+          const wt = 1 - tAvg;
+          const denom = 1 - ((4 - Math.PI) * (1 - 2 * wt) * (1 - 2 * wt)) / 4;
+          const a = spacing * Math.sqrt(wt / denom);
+          if (a < 0.05) continue;
+          lctx.save();
+          lctx.translate(sx / cnt, sy / cnt);
+          lctx.rotate(Math.PI / 4);
+          lctx.beginPath();
+          lctx.roundRect(-a / 2, -a / 2, a, a, (a / 2) * (1 - 2 * wt));
+          lctx.fill();
+          lctx.restore();
+        }
       }
     }
     lctx.restore();

@@ -7,7 +7,7 @@ A web app that converts images into color halftone prints, served as a Mistral A
 - **CMYK (print)** — classic process-color screening: cyan, magenta, yellow, and black dot screens at traditional angles (15°/75°/0°/45°), composited with multiply blending on paper.
 - **RGB (screen)** — additive red/green/blue dot screens on black, for a glowing LED-screen look.
 - **Mono (B&W)** — single black screen from image luminance.
-- **Dot shapes** — circle, square, diamond, line.
+- **Dot shapes** — circle (chain dots: round in the lights, diamond and touching at the midtones, solid ink with round white holes in the shadows), square, diamond, line.
 - **Controls** — dot size, angle offset, dot gain (midtone response), contrast, brightness, saturation, soften, and paper color.
 - **Inks** — recolor any ink and scale its strength; "rich black" adds CMY under the key for deeper darks.
 - **Press realism** — dot jitter, per-screen misregistration, ink color variation, ink/dark specks, and sun fade, all driven by a re-rollable seed so the preview and the exported PNG show the same print.
