@@ -57,7 +57,30 @@ const state = {
   source: null,
   name: 'image',
   seed: (Math.random() * 0x100000000) >>> 0,
+  interacting: false,
 };
+
+const scratchCanvases = {};
+function scratchCanvas(key, w, h) {
+  let c = scratchCanvases[key];
+  if (!c) c = scratchCanvases[key] = document.createElement('canvas');
+  if (c.width !== w) c.width = w;
+  if (c.height !== h) c.height = h;
+  return c;
+}
+
+const sampleCache = { source: null, w: 0, h: 0, data: null };
+const hmapCache = { key: '', map: null };
+
+let interactTimer = null;
+function markInteract() {
+  state.interacting = true;
+  clearTimeout(interactTimer);
+  interactTimer = setTimeout(() => {
+    state.interacting = false;
+    scheduleRender();
+  }, 240);
+}
 
 const MAX_PREVIEW = 1100;
 
@@ -219,17 +242,23 @@ function ageColor(rgb, fade) {
 }
 
 function renderHalftone(source, width, height, opts) {
-  const sample = document.createElement('canvas');
-  sample.width = width;
-  sample.height = height;
-  const sctx = sample.getContext('2d', { willReadFrequently: true });
-  sctx.drawImage(source, 0, 0, width, height);
-  const data = sctx.getImageData(0, 0, width, height).data;
+  let data;
+  if (sampleCache.source === source && sampleCache.w === width && sampleCache.h === height) {
+    data = sampleCache.data;
+  } else {
+    const sample = scratchCanvas('sample', width, height);
+    const sctx = sample.getContext('2d', { willReadFrequently: true });
+    sctx.clearRect(0, 0, width, height);
+    sctx.drawImage(source, 0, 0, width, height);
+    data = sctx.getImageData(0, 0, width, height).data;
+    sampleCache.source = source;
+    sampleCache.w = width;
+    sampleCache.h = height;
+    sampleCache.data = data;
+  }
 
   const screen = SCREENS[opts.mode];
-  const out = document.createElement('canvas');
-  out.width = width;
-  out.height = height;
+  const out = scratchCanvas('out', width, height);
   const octx = out.getContext('2d');
 
   const spacing = opts.spacing;
@@ -238,6 +267,8 @@ function renderHalftone(source, width, height, opts) {
   const jitterAmp = opts.jitter * spacing * 0.5;
   const varAmt = opts.inkvar;
   const sub = spacing / 3;
+  const samples = opts.fast ? 1 : 9;
+  const norm = 255 * samples;
   const isChain = opts.shape === 'circle' && typeof octx.roundRect === 'function';
   const stride = 2 * reach + 1;
   const tones = isChain ? new Float32Array(stride * stride) : null;
@@ -246,8 +277,18 @@ function renderHalftone(source, width, height, opts) {
   const paper = opts.mode === 'rgb' ? [0, 0, 0] : ageColor(hexToRgb(screen.bg()), opts.sunfade);
   const paperStyle = `rgb(${paper[0]},${paper[1]},${paper[2]})`;
 
-  const needsPaper = opts.grain > 0 || opts.inkfade > 0 || opts.crumple > 0;
-  const hmap = needsPaper ? paperHeightmap(state.seed, width, height, spacing * 1.2) : null;
+  const needsPaper = !opts.fast && (opts.grain > 0 || opts.inkfade > 0 || opts.crumple > 0);
+  let hmap = null;
+  if (needsPaper) {
+    const hkey = `${state.seed}|${width}|${height}|${Math.round(spacing * 120)}`;
+    if (hmapCache.key === hkey) {
+      hmap = hmapCache.map;
+    } else {
+      hmap = paperHeightmap(state.seed, width, height, spacing * 1.2);
+      hmapCache.key = hkey;
+      hmapCache.map = hmap;
+    }
+  }
 
   if (opts.grain > 0) {
     const img = octx.createImageData(width, height);
@@ -269,10 +310,9 @@ function renderHalftone(source, width, height, opts) {
     const ch = screen.channels[ci];
     const jx = (i, j) => (jitterAmp > 0 ? (hash3(state.seed, ci, i, j * 2 + 1) - 0.5) * 2 * jitterAmp : 0);
     const jy = (i, j) => (jitterAmp > 0 ? (hash3(state.seed, ci, i, j * 2 + 2) - 0.5) * 2 * jitterAmp : 0);
-    const layer = document.createElement('canvas');
-    layer.width = width;
-    layer.height = height;
+    const layer = scratchCanvas('layer', width, height);
     const lctx = layer.getContext('2d');
+    lctx.clearRect(0, 0, width, height);
     const cr = ch.color[0];
     const cg = ch.color[1];
     const cb = ch.color[2];
@@ -302,9 +342,9 @@ function renderHalftone(source, width, height, opts) {
         let r = 0;
         let g = 0;
         let b = 0;
-        for (let s = 0; s < 9; s++) {
-          const ox = px + ((s % 3) - 1) * sub;
-          const oy = py + (((s / 3) | 0) - 1) * sub;
+        for (let s = 0; s < samples; s++) {
+          const ox = samples === 1 ? px : px + ((s % 3) - 1) * sub;
+          const oy = samples === 1 ? py : py + (((s / 3) | 0) - 1) * sub;
           const fx = width / 2 + ox * cos - oy * sin;
           const fy = height / 2 + ox * sin + oy * cos;
           let x0 = Math.floor(fx);
@@ -327,9 +367,9 @@ function renderHalftone(source, width, height, opts) {
           g += data[p00 + 1] * w00 + data[p10 + 1] * w10 + data[p01 + 1] * w01 + data[p11 + 1] * w11;
           b += data[p00 + 2] * w00 + data[p10 + 2] * w10 + data[p01 + 2] * w01 + data[p11 + 2] * w11;
         }
-        r /= 2295;
-        g /= 2295;
-        b /= 2295;
+        r /= norm;
+        g /= norm;
+        b /= norm;
         if (opts.brightness !== 1) {
           r *= opts.brightness;
           g *= opts.brightness;
@@ -420,10 +460,9 @@ function renderHalftone(source, width, height, opts) {
   }
   octx.globalCompositeOperation = 'source-over';
 
-  if (opts.soften > 0 && typeof octx.filter === 'string') {
-    const tmp = document.createElement('canvas');
-    tmp.width = width;
-    tmp.height = height;
+  if (opts.soften > 0 && !opts.fast && typeof octx.filter === 'string') {
+    const tmp = scratchCanvas('tmpA', width, height);
+    tmp.getContext('2d').clearRect(0, 0, width, height);
     tmp.getContext('2d').drawImage(out, 0, 0);
     octx.save();
     octx.filter = `blur(${(opts.soften * spacing * 0.18).toFixed(2)}px)`;
@@ -432,11 +471,10 @@ function renderHalftone(source, width, height, opts) {
     octx.restore();
   }
 
-  if (opts.inkfade > 0) {
-    const tmp = document.createElement('canvas');
-    tmp.width = width;
-    tmp.height = height;
+  if (opts.inkfade > 0 && !opts.fast) {
+    const tmp = scratchCanvas('tmpA', width, height);
     const tctx = tmp.getContext('2d');
+    tctx.clearRect(0, 0, width, height);
     const img = tctx.createImageData(width, height);
     const px = img.data;
     for (let i = 0, o = 0; i < width * height; i++, o += 4) {
@@ -463,11 +501,10 @@ function renderHalftone(source, width, height, opts) {
     }
   }
 
-  if (opts.crumple > 0) {
-    const tmp = document.createElement('canvas');
-    tmp.width = width;
-    tmp.height = height;
+  if (opts.crumple > 0 && !opts.fast) {
+    const tmp = scratchCanvas('tmpA', width, height);
     const tctx = tmp.getContext('2d');
+    tctx.clearRect(0, 0, width, height);
     const img = tctx.createImageData(width, height);
     const px = img.data;
     for (let y = 0; y < height; y++) {
@@ -539,10 +576,13 @@ function renderPreview() {
   const w = Math.max(1, Math.round(out.w * scale));
   const h = Math.max(1, Math.round(out.h * scale));
   const opts = readOpts();
+  opts.fast = state.interacting;
   opts.spacing = Math.max(1.5, opts.spacing * (w / out.w));
   const halftone = renderHalftone(src, w, h, opts);
-  els.canvas.width = w;
-  els.canvas.height = h;
+  if (els.canvas.width !== w) {
+    els.canvas.width = w;
+    els.canvas.height = h;
+  }
   els.canvas.getContext('2d').drawImage(halftone, 0, 0);
   els.placeholder.hidden = true;
   els.canvasWrap.hidden = false;
@@ -559,6 +599,7 @@ function scheduleRender() {
 function loadSource(source, name) {
   state.source = source;
   state.name = (name || 'image').replace(/\.[^.]+$/, '') || 'image';
+  sampleCache.source = null;
   renderPreview();
 }
 
@@ -723,6 +764,7 @@ els.download.addEventListener('click', () => {
 ].forEach(
   (el) => el.addEventListener('input', () => {
     updateLabels();
+    markInteract();
     scheduleRender();
   })
 );
