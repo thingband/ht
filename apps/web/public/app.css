@@ -112,6 +112,32 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+input[type="range"]:disabled {
+  opacity: 0.35;
+}
+
+#inks label.ink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+#inks label.ink input[type="color"] {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--panel-edge);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+#inks label.ink input[type="range"] {
+  flex: 1;
+  margin-top: 0;
+}
+
 button {
   font: inherit;
   border-radius: 9px;

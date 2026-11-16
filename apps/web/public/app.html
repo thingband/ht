@@ -29,6 +29,14 @@
 
       <section class="panel">
         <h2>Screening</h2>
+        <label>Print character
+          <select id="preset">
+            <option value="clean" selected>Clean</option>
+            <option value="newsprint">Newsprint</option>
+            <option value="comic">Comic</option>
+            <option value="worn">Worn print</option>
+          </select>
+        </label>
         <label>Mode
           <select id="mode">
             <option value="cmyk" selected>CMYK (print)</option>
@@ -56,22 +64,62 @@
         <label>Contrast <span class="val" id="contrastVal"></span>
           <input type="range" id="contrast" min="0.5" max="2" step="0.05" value="1">
         </label>
+        <label>Brightness <span class="val" id="brightnessVal"></span>
+          <input type="range" id="brightness" min="0.5" max="1.5" step="0.05" value="1">
+        </label>
+        <label>Saturation <span class="val" id="saturationVal"></span>
+          <input type="range" id="saturation" min="0" max="2" step="0.05" value="1">
+        </label>
+        <label>Soften <span class="val" id="softenVal"></span>
+          <input type="range" id="soften" min="0" max="1" step="0.05" value="0">
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Press</h2>
         <label>Jitter <span class="val" id="jitterVal"></span>
           <input type="range" id="jitter" min="0" max="1" step="0.05" value="0">
         </label>
         <label>Misregistration <span class="val" id="misregVal"></span>
           <input type="range" id="misreg" min="0" max="1" step="0.05" value="0">
         </label>
+        <label>Ink variation <span class="val" id="inkvarVal"></span>
+          <input type="range" id="inkvar" min="0" max="1" step="0.05" value="0">
+        </label>
         <label>Specks <span class="val" id="specksVal"></span>
           <input type="range" id="specks" min="0" max="100" step="5" value="0">
         </label>
+        <label>Sun fade <span class="val" id="sunfadeVal"></span>
+          <input type="range" id="sunfade" min="0" max="1" step="0.05" value="0">
+        </label>
         <button id="reroll" class="ghost">Re-roll print randomness</button>
+      </section>
+
+      <section class="panel">
+        <h2>Inks</h2>
+        <div id="inks"></div>
+        <label>Rich black (CMYK) <span class="val" id="richVal"></span>
+          <input type="range" id="rich" min="0" max="1" step="0.05" value="0">
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Paper</h2>
         <label>Paper
           <select id="bg">
             <option value="#ffffff" selected>White</option>
             <option value="#f4ecdd">Cream</option>
             <option value="#e9e2d0">Newsprint</option>
           </select>
+        </label>
+        <label>Paper grain <span class="val" id="grainVal"></span>
+          <input type="range" id="grain" min="0" max="1" step="0.05" value="0">
+        </label>
+        <label>Ink fade <span class="val" id="inkfadeVal"></span>
+          <input type="range" id="inkfade" min="0" max="1" step="0.05" value="0">
+        </label>
+        <label>Crumple <span class="val" id="crumpleVal"></span>
+          <input type="range" id="crumple" min="0" max="1" step="0.05" value="0">
         </label>
       </section>
 
