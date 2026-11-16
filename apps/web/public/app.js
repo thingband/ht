@@ -409,7 +409,9 @@ function renderHalftone(source, width, height, opts) {
               lctx.restore();
             }
           } else {
-            lctx.fillRect(px - halfCell, py - halfCell, spacing + 0.5, spacing + 0.5);
+            lctx.beginPath();
+            lctx.roundRect(px - halfCell, py - halfCell, spacing + 0.5, spacing + 0.5, spacing * 0.12);
+            lctx.fill();
           }
         } else {
           drawDot(lctx, opts.shape, px, py, maxR, spacing, v);
@@ -439,17 +441,11 @@ function renderHalftone(source, width, height, opts) {
           }
           const tAvg = sum / cnt;
           if (tAvg <= 0.5) continue;
-          const wt = 1 - tAvg;
-          const denom = 1 - ((4 - Math.PI) * (1 - 2 * wt) * (1 - 2 * wt)) / 4;
-          const a = spacing * Math.sqrt(wt / denom);
-          if (a < 0.05) continue;
-          lctx.save();
-          lctx.translate(sx / cnt, sy / cnt);
-          lctx.rotate(Math.PI / 4);
+          const rh = spacing * Math.sqrt((1 - tAvg) / Math.PI);
+          if (rh < 0.05) continue;
           lctx.beginPath();
-          lctx.roundRect(-a / 2, -a / 2, a, a, (a / 2) * (1 - 2 * wt));
+          lctx.arc(sx / cnt, sy / cnt, rh, 0, Math.PI * 2);
           lctx.fill();
-          lctx.restore();
         }
       }
     }
@@ -675,7 +671,7 @@ void main() {
     float cov = 0.0;
     if (uShape == 0) {
       if (tone >= 0.5) {
-        cov = 1.0 - smoothstep(-w, w, sdRoundBox(q, vec2(uSpacing / 2.0 + 0.25), 0.0));
+        cov = 1.0 - smoothstep(-w, w, sdRoundBox(q, vec2(uSpacing / 2.0 + 0.25), 0.12 * uSpacing));
       } else {
         cov = 1.0 - smoothstep(-w, w, roundedDiamond(q, tone, uSpacing));
       }
@@ -692,7 +688,7 @@ void main() {
         }
         tAvg /= 4.0;
         if (tAvg > 0.5) {
-          float sdh = roundedDiamond(q - (corner - cj), 1.0 - tAvg, uSpacing);
+          float sdh = length(q - (corner - cj)) - uSpacing * sqrt((1.0 - tAvg) / PI);
           cov *= 1.0 - (1.0 - smoothstep(-0.75, 0.75, sdh));
         }
       }
